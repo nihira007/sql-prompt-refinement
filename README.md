@@ -1,191 +1,578 @@
 # Iterative Prompt Refinement for SQL Query Planning via TextGrad
 
-An auto-refining, **plan-aware** text-to-SQL engine. A language model writes SQL, SQLite executes it, and when
-the query fails, returns the wrong result, or returns the right result through a **slow query plan**, a
-**TextGrad-style** loop turns that failure into textual feedback and **rewrites the system prompt** so later
-queries are better. A Streamlit dashboard shows every step live and compares the optimised prompt with static
-zero-shot and few-shot prompting on **three complexity tiers**, with confidence intervals and significance tests.
-It also works on **your own SQLite database**.
+An intelligent, plan-aware Text-to-SQL system that improves SQL generation through iterative prompt refinement.
 
-```
-question + schema ──(LLM + system prompt)──► SQL ──(SQLite)──► rows │ error
-                              ▲                        │
-                              │                        └─► EXPLAIN QUERY PLAN + measured cost
-                              │                                         │
-                              └── optimiser rewrites the prompt ◄── critic LLM writes a textual gradient
+The system uses a Large Language Model (LLM) to convert natural-language questions into SQL queries, executes them against an SQLite database, evaluates their correctness and efficiency, and uses TextGrad-style textual feedback to improve the system prompt over multiple iterations.
+
+A Streamlit dashboard provides a live view of the entire process, including generated SQL, execution results, query plans, feedback, and prompt improvements.
+
+---
+
+## 1. Project Overview
+
+Traditional Text-to-SQL systems generate SQL queries from natural-language questions. However, a generated query may:
+
+- Contain syntax or execution errors.
+- Return incorrect results.
+- Produce correct results using inefficient query plans.
+- Fail to generalize to more complex database questions.
+
+This project addresses these limitations using **iterative prompt refinement**.
+
+Instead of modifying the underlying LLM or retraining it, the system improves the instructions given to the LLM. When a generated query fails or performs poorly, a critic model analyses the failure and generates textual feedback. This feedback is used to update the system prompt, guiding future SQL generation.
+
+The system evaluates three prompting strategies:
+
+1. Zero-shot prompting.
+2. Few-shot prompting.
+3. TextGrad-optimized prompting.
+
+The strategies are compared using a benchmark containing questions of different SQL complexity levels.
+
+## 2. Project Objectives
+
+- Develop a natural-language-to-SQL generation system.
+- Implement a TextGrad-style feedback and prompt optimization loop.
+- Evaluate SQL queries based on both correctness and execution efficiency.
+- Analyse SQLite query execution plans.
+- Compare zero-shot, few-shot, and optimized prompting strategies.
+- Provide a visual dashboard to understand the refinement process.
+- Support user-uploaded SQLite databases.
+
+## 3. Technologies Used
+
+| Technology | Purpose |
+|---|---|
+| Python | Core implementation |
+| Streamlit | Interactive dashboard |
+| LangChain | LLM integration |
+| Ollama | Local LLM inference |
+| SQLite | Database and SQL execution |
+| EXPLAIN QUERY PLAN | Query-plan analysis |
+| TextGrad-style optimization | Textual feedback and prompt refinement |
+| Pandas | Data handling and evaluation |
+| Altair | Benchmark visualizations |
+| Pytest | Automated testing |
+
+## 4. System Architecture
+
+The system follows an iterative pipeline consisting of SQL generation, execution, evaluation, feedback generation, and prompt refinement.
+
+### Overall Workflow
+
+```text
+       Natural Language Question
+                   |
+                   v
+           Database Schema
+                   |
+                   v
+          Current System Prompt
+                   |
+                   v
+             LLM Model
+                   |
+                   v
+             Generated SQL
+                   |
+                   v
+          SQLite Execution
+                   |
+          +--------+--------+
+          |                 |
+          v                 v
+      SQL Results       SQL Error
+          |
+          v
+    Query Plan Analysis
+          |
+          v
+    Correctness and
+    Efficiency Evaluation
+          |
+          v
+       Critic LLM
+          |
+          v
+   Textual Feedback
+    (Textual Gradient)
+          |
+          v
+    Prompt Optimizer
+          |
+          v
+     Updated Prompt
+          |
+          +---------> Next Iteration
 ```
 
-## Quick start
+The updated prompt is used in subsequent iterations to improve SQL generation.
+
+## 5. How the System Works
+
+### Step 1: Input Processing
+
+The user enters a natural-language question through the Streamlit dashboard.
+
+For example:
+
+> Find the total revenue generated by each product category.
+
+The system retrieves the database schema, including available tables, columns, example rows, and indexes.
+
+The question and schema are passed to the LLM along with the current system prompt.
+
+### Step 2: SQL Generation
+
+The LLM converts the natural-language question into an SQLite-compatible SQL query.
+
+The generated SQL is expected to follow the required output format.
+
+For example:
+
+```sql
+SELECT p.category, SUM(oi.quantity * oi.unit_price) AS revenue
+FROM products p
+JOIN order_items oi ON p.product_id = oi.product_id
+GROUP BY p.category;
+```
+
+The generated query is then passed to the execution stage.
+
+### Step 3: SQL Execution
+
+The generated query is executed against the SQLite database.
+
+The system checks whether:
+
+- The SQL query executes successfully.
+- The query returns valid results.
+- The returned results match the reference SQL results, when a reference query is available.
+
+The database execution is read-only and restricted to SELECT/WITH queries.
+
+Queries that run for too long are aborted.
+
+### Step 4: Query Plan Analysis
+
+A query can be logically correct but computationally inefficient.
+
+To evaluate this, the system uses SQLite's `EXPLAIN QUERY PLAN`.
+
+It examines the query execution plan and identifies potential inefficiencies, including:
+
+- Full table scans.
+- Correlated subqueries.
+- Repeated table scans.
+- Temporary sorting structures.
+
+The system also measures SQLite Virtual Machine (VM) steps.
+
+VM steps provide a deterministic measure of the work performed by SQLite, unlike wall-clock execution time, which can vary depending on hardware and system load.
+
+When a reference SQL query is available, the generated query's cost is compared against it.
+
+A correct query is considered inefficient when its execution requires more than three times the reference query's work and at least 3,000 additional VM steps.
+
+### Step 5: Evaluation
+
+The generated SQL is evaluated using correctness and efficiency checks.
+
+The evaluation considers:
+
+- Whether the query executes successfully.
+- Whether its output matches the reference result.
+- Whether the query plan is efficient.
+
+The system combines these checks to determine whether the generated query passes.
+
+### Step 6: TextGrad-Style Feedback Generation
+
+If the generated query fails or performs poorly, the critic LLM analyses the problem.
+
+It produces textual feedback explaining what went wrong and what should be improved.
+
+For example:
+
+```text
+The query uses a correlated subquery that repeatedly
+scans the order_items table.
+
+Consider replacing it with a JOIN and GROUP BY
+to reduce repeated execution work.
+```
+
+This feedback acts as a **textual gradient**.
+
+Unlike traditional gradient descent, the system does not calculate numerical gradients or update model weights. Instead, it uses natural-language feedback to guide changes to the system prompt.
+
+### Step 7: Prompt Optimization
+
+The optimizer uses the critic's feedback to rewrite the system prompt.
+
+For example, the original prompt may be updated with a guideline such as:
+
+```text
+Prefer JOIN and GROUP BY operations over correlated
+subqueries when they can achieve the same result.
+
+Avoid unnecessary full table scans.
+Use SQLite-compatible SQL syntax.
+```
+
+The candidate prompt is evaluated against the training questions.
+
+It is retained only if the training score strictly improves.
+
+This validation gate prevents an unsuccessful prompt update from replacing a better existing prompt.
+
+### Step 8: Iterative Refinement
+
+The updated prompt is used to generate SQL for subsequent questions.
+
+The process repeats:
+
+1. Generate SQL.
+2. Execute SQL.
+3. Analyse the query plan.
+4. Evaluate correctness and efficiency.
+5. Generate textual feedback.
+6. Update the prompt.
+
+Over multiple iterations, the prompt learns general guidelines that can improve future SQL generation.
+
+---
+
+## 6. Dashboard Features
+
+The project provides three main dashboard sections.
+
+### A. Live Refinement
+
+This section demonstrates the complete SQL refinement process.
+
+Users can:
+
+- Select a predefined question or enter their own.
+- Choose zero-shot, few-shot, or an optimized prompt.
+- Generate SQL queries.
+- View SQL execution results and errors.
+- Inspect query plans and execution costs.
+- View critic feedback.
+- Compare the original and refined prompts.
+- Track prompt changes across iterations.
+
+A reference SQL query can optionally be provided to enable correctness and efficiency comparisons.
+
+### B. Benchmark
+
+This section compares three prompting strategies:
+
+1. Static zero-shot prompting.
+2. Static few-shot prompting.
+3. TextGrad-optimized zero-shot prompting.
+
+The benchmark evaluates all three strategies on held-out test questions.
+
+It provides:
+
+- Execution success and accuracy.
+- Pass rates.
+- 95% confidence intervals.
+- Paired statistical significance testing.
+- Failure classifications.
+- Training curves.
+- Per-question evaluation results.
+- Optimizer feedback and prompt changes.
+- Markdown and JSON report exports.
+
+The optimizer learns using training questions only. Test questions are reserved for evaluation.
+
+### C. How It Works
+
+This section explains the system's architecture, refinement loop, evaluation metrics, and design decisions.
+
+### D. Custom SQLite Database
+
+Users can upload their own SQLite database through the sidebar.
+
+The system automatically reads its schema, including tables, columns, example rows, and indexes.
+
+Users can then generate and refine SQL queries using their own data.
+
+Note: The built-in benchmark uses the sample e-commerce database because its questions depend on predefined reference SQL queries.
+
+---
+
+## 7. Benchmark Dataset
+
+The project includes a benchmark of **60 labelled natural-language questions** with corresponding reference SQL queries.
+
+The benchmark uses a four-table e-commerce database:
+
+- `customers`
+- `products`
+- `orders`
+- `order_items`
+
+Questions are divided into three complexity tiers.
+
+| Complexity Tier | Description |
+|---|---|
+| Single-Table | Filtering, aggregation, GROUP BY, HAVING, ORDER BY, LIMIT, and date functions |
+| Multi-Join | Multiple table joins, INNER JOIN, LEFT JOIN, DISTINCT counts, revenue calculations, and zero-filled joins |
+| Advanced | Subqueries, CTEs, window functions, conditional aggregation, and complex analytical questions |
+
+### Training and Testing
+
+Each tier contains:
+
+- 12 training questions.
+- 8 testing questions.
+
+The project supports three benchmark sizes:
+
+| Benchmark Size | Training Questions per Tier | Testing Questions per Tier |
+|---|---:|---:|
+| Quick | 4 | 4 |
+| Standard | 8 | 6 |
+| Full | 12 | 8 |
+
+The default setting is Quick.
+
+The training questions are used for prompt optimization, while the held-out testing questions measure generalization.
+
+Multiple optimization runs with different seeds can also be used to examine the stability of the results.
+
+---
+
+## 8. Evaluation Metrics
+
+The project uses the following metrics:
+
+| Metric | Description |
+|---|---|
+| Execution Success | Percentage of queries that execute without database errors |
+| Execution Accuracy | Percentage of queries whose results match the reference SQL results |
+| Pass Rate | Percentage of queries that are both correct and sufficiently efficient |
+| 95% Confidence Interval | Wilson score interval used to represent uncertainty in the pass rate |
+| p-value | Exact two-sided sign test comparing TextGrad against the stronger static baseline |
+
+**Pass Rate is the main evaluation metric** because it considers both correctness and query efficiency.
+
+### Statistical Evaluation
+
+The benchmark uses paired comparisons because all prompting strategies are evaluated on the same test questions.
+
+The exact two-sided sign test compares TextGrad with the stronger static prompting baseline.
+
+This helps determine whether the observed difference in performance is statistically meaningful.
+
+---
+
+## 9. TextGrad-Style Optimization: Important Design Choices
+
+### Validation-Gated Updates
+
+A new prompt is accepted only when its training score strictly improves.
+
+This prevents a poor prompt rewrite from replacing a better prompt.
+
+### Held-Out Evaluation
+
+The optimizer uses training questions only.
+
+The test questions are not used to generate feedback or update the prompt.
+
+This helps prevent test-set leakage.
+
+### Protected SQL Output Format
+
+A fixed system-prompt footer is appended to ensure that the model returns one SQLite SELECT query inside a SQL code block.
+
+The optimizer cannot remove this required output instruction.
+
+### Response Caching
+
+LLM responses are cached locally in SQLite.
+
+This helps avoid repeated API calls, reduces unnecessary costs, and allows interrupted benchmark runs to resume.
+
+### Safe SQL Execution
+
+The system uses read-only database connections, restricts execution to SELECT/WITH queries, and aborts runaway queries after five seconds.
+
+---
+
+## 10. Demo Mode
+
+The application can run without configuring a real LLM.
+
+In this case, it uses an offline simulator implemented in `mock_llm.py`.
+
+The simulator is scripted rather than an actual language model. It produces representative SQL mistakes, such as:
+
+- Using SQL Server's `TOP` syntax instead of SQLite-compatible `LIMIT`.
+- Using unsupported `YEAR()` functions.
+- Placing aggregate functions inside WHERE clauses.
+- Missing LEFT JOIN operations.
+- Using nested aggregates incorrectly.
+- Generating inefficient correlated subqueries.
+
+The simulator responds to guidelines added to the prompt, allowing users to observe the refinement pipeline without an API key.
+
+**Important:** Demo-mode benchmark results demonstrate the behaviour of the refinement pipeline, not the performance or quality of a real language model.
+
+Results obtained using an actual LLM may differ.
+
+---
+
+## 11. Installation and Setup
+
+### Prerequisites
+
+- Python 3.10 or above.
+- Git.
+- Ollama installed for local inference, or a Groq API key for cloud inference.
+
+### Step 1: Clone the Repository
 
 ```bash
-python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
+git clone <YOUR_GITHUB_REPOSITORY_URL>
+cd <YOUR_PROJECT_FOLDER>
+```
+
+### Step 2: Create a Virtual Environment
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+### Step 3: Install Dependencies
+
+```bash
 pip install -r requirements.txt
+```
+
+### Step 4: Configure the LLM
+
+Create a `.env` file in the project directory using `.env.example` as a template.
+
+Configure the appropriate API key, model name, and optional endpoint URL.
+
+Example:
+
+```env
+OPENAI_API_KEY=your_api_key
+OPENAI_MODEL=your_model_name
+OPENAI_BASE_URL=your_endpoint_url
+TEXTGRAD_SQL_CACHE=1
+```
+
+For a local Ollama model, configure the OpenAI-compatible endpoint:
+
+```env
+OPENAI_API_KEY=ollama
+OPENAI_MODEL=qwen2.5-coder:7b
+OPENAI_BASE_URL=http://localhost:11434/v1
+```
+
+Make sure Ollama is installed, the model is downloaded, and the Ollama service is running.
+
+If no model is configured, the application starts in demo mode.
+
+**Never upload your `.env` file or API keys to GitHub.**
+
+### Step 5: Run the Application
+
+```bash
 streamlit run app.py
 ```
 
-Python 3.10+. With no model configured the app starts in **demo mode** (see below). To use a real model, set the
-environment variables below (or copy `.env.example` to `.env`) **before** starting the app.
+The application will open in your browser, usually at:
 
-### Free and local: Ollama (no API key)
+```text
+http://localhost:8501
+```
+
+---
+
+## 12. Running Tests and Utilities
+
+### Run Automated Tests
 
 ```bash
-ollama pull qwen2.5-coder:7b            # one-time download, then make sure Ollama is running
-export OPENAI_BASE_URL=http://localhost:11434/v1
-export OPENAI_API_KEY=ollama            # any non-empty text; Ollama ignores it
-export OPENAI_MODEL=qwen2.5-coder:7b
-streamlit run app.py
+python test_project.py
 ```
 
-Windows PowerShell: `$env:OPENAI_BASE_URL="http://localhost:11434/v1"` and so on. Other OpenAI-compatible
-providers (OpenAI, Groq, Gemini, vLLM, a LiteLLM proxy, ...) work the same way with their base URL, key and model.
-Restart the app after changing variables. Local models on CPU are slow: keep **Benchmark size = Quick** (the
-default), and let the response cache carry long runs (see below).
-
-| Variable             | Meaning                                                                                  |
-|----------------------|------------------------------------------------------------------------------------------|
-| `OPENAI_API_KEY`     | Key for the endpoint. If missing, the app runs in demo mode.                             |
-| `OPENAI_MODEL`       | Model name (default `gpt-4o-mini`).                                                      |
-| `OPENAI_BASE_URL`    | Optional. Any OpenAI-compatible endpoint.                                                |
-| `OPENAI_TIMEOUT`     | Seconds per request (default 180; raise it for slow local models).                       |
-| `TEXTGRAD_SQL_CACHE` | `0` disables the on-disk response cache; a path chooses where it lives. Default: on.     |
-| `TEXTGRAD_SQL_DB`    | Where the built-in SQLite file is created (default `./ecommerce.db`).                    |
-
-## What is in the dashboard
-
-**🔍 Live refinement.** Pick a sample question (or write your own), press *Generate & refine*, and watch each
-round: the initial SQL, the execution result or the exact database error, the **query plan and its measured cost**,
-the TextGrad feedback, and the refined prompt with a diff. Choose zero-shot, few-shot or the prompt TextGrad
-learned in the benchmark as the starting point. A reference SQL is optional and enables correctness and
-efficiency checks on any question.
-
-**📊 Benchmark.** Three strategies on three tiers, scored on **held-out test questions**:
-
-1. static zero-shot prompt
-2. static few-shot prompt
-3. the zero-shot prompt optimised by TextGrad on the **train** questions only
-
-You get headline numbers, a summary table with **95% confidence intervals**, a bar chart with CI whiskers, a
-**paired significance test** against the stronger static baseline, a **failure taxonomy** (what kind of mistakes
-each strategy makes), training curves, per-question outcomes, every optimiser step with its feedback and prompt
-diff, and **downloads** (Markdown report, JSON results, learned prompts).
-
-**ℹ️ How it works.** The loop, the metrics and the design choices on one page.
-
-**Your own database.** Choose *Upload my own SQLite file* in the sidebar. The schema (including example rows and
-indexes) is read automatically and you can refine questions about your own data. The benchmark itself needs the
-built-in database because it relies on labelled reference queries.
-
-## The query-planning part
-
-Correct SQL can still be bad SQL. For every query that runs, the pipeline
-
-* reads SQLite's `EXPLAIN QUERY PLAN` and flags anti-patterns such as correlated subqueries that re-scan a table for
-  every row, multiple full scans, and temporary sort structures;
-* measures the real work in **SQLite VM steps** (a deterministic cost measure, unlike wall-clock time);
-* compares it with the reference query. A correct result that needs **more than 3x the work and at least 3000
-  extra steps** counts as a failure (the absolute floor stops tiny queries from being flagged by noise).
-
-The plan, the cost ratio and the detected problems become part of the *loss* that is back-propagated to the prompt.
-The sample schema deliberately leaves `order_items.product_id` unindexed so such questions have a measurable
-slow variant. Turn the check off in the sidebar to score only correctness.
-
-## Metrics
-
-| Metric             | Meaning                                                                                    |
-|--------------------|--------------------------------------------------------------------------------------------|
-| Execution success  | the query ran without a database error                                                     |
-| Execution accuracy | the result equals the reference result (column order ignored, rows compared as a multiset) |
-| **Pass rate**      | correct **and** not an inefficient plan; the headline metric                               |
-| 95% CI             | Wilson score interval over the test questions                                              |
-| p-value            | exact two-sided sign test, TextGrad vs the stronger static prompt, same questions          |
-
-## The benchmark
-
-60 labelled questions with reference SQL over a four-table e-commerce database (`customers`, `products`,
-`orders`, `order_items`), 12 train and 8 test per tier:
-
-| Tier         | Covers                                                                                  |
-|--------------|-----------------------------------------------------------------------------------------|
-| Single-Table | filters, aggregates, GROUP BY / HAVING, ORDER BY / LIMIT, date functions                |
-| Multi-Join   | 2-4 joined tables, INNER / LEFT JOIN, DISTINCT counts, revenue maths, zero-filled joins |
-| Advanced     | subqueries, CTEs, window functions, conditional aggregation, "for every ..." questions  |
-
-Questions have no ties (so there is one right answer), and `python benchmark.py` verifies that every reference
-query runs, returns rows and fits its tier.
-
-Sizes: **Quick** (4 train / 4 test per tier, the default), **Standard** (8 / 6) and **Full** (12 / 8). Optional
-**multiple optimisation runs (seeds)** show how stable the result is; the headline run is chosen by its *train*
-score, never by its test score.
-
-## Demo mode (no model configured)
-
-The app does not crash without a model. It uses an **offline simulator** (`mock_llm.py`) that is *scripted*, not a
-language model: it makes typical text-to-SQL mistakes (T-SQL `TOP`, `YEAR()`, aggregates in `WHERE`, missing
-`LEFT JOIN`, nested aggregates, correlated subqueries, ...) unless the prompt contains the guideline that fixes the
-mistake, and it only answers the built-in questions. It lets you see all the machinery work offline.
-
-**Demo-mode numbers demonstrate the pipeline, not model quality**, and the app and reports say so. Example
-(simulator, Full size, one run, pass rate on the 8 held-out test questions per tier):
-
-| Tier         | Zero-shot | Few-shot | TextGrad |
-|--------------|----------:|---------:|---------:|
-| Single-Table |       25% |      50% |     100% |
-| Multi-Join   |       25% |      25% |      88% |
-| Advanced     |        0% |       0% |      75% |
-
-TextGrad does not reach 100% on every tier, and that is intended: some test questions need a guideline that the
-training questions never exposed (for example date functions or the "completed orders only" rule in the Advanced
-tier), or one that a given run's training batches reached too late. That is the generalisation gap a held-out
-test exists to expose. The simulator is deterministic, so these numbers repeat exactly; with a real model the
-gains will differ and may be smaller.
-
-## Design notes
-
-* **Validation-gated updates.** A candidate prompt is kept only if the train score strictly improves, so a bad
-  rewrite cannot make the prompt worse.
-* **Held-out evaluation.** The optimiser learns from train questions only; the critic is told to give general
-  feedback, not question-specific answers.
-* **Safe execution.** Read-only connection, single `SELECT`/`WITH` only, runaway queries aborted after 5 seconds.
-* **Protected output format.** A fixed footer ("return one SQLite SELECT in a ```sql block") is always appended so
-  the optimiser cannot rewrite it away.
-* **Resumable runs.** With a live model, responses are cached in `.llm_cache.sqlite` (temperature 0). An interrupted
-  benchmark continues where it stopped, repeats are free, and the sidebar shows the call estimate up front. Use
-  *Clear response cache* after changing prompts' wording in code or switching models of the same name.
-
-## Project structure
-
-```
-app.py                 Streamlit dashboard (3 tabs, upload your own DB)
-pipeline.py            generate -> execute -> plan -> evaluate -> TextGrad loop, training, benchmark, tables
-textgrad_optimizer.py  textual loss, gradients (critic) and the prompt update step (optimiser)
-query_plan.py          EXPLAIN QUERY PLAN parsing and anti-pattern detection
-database.py            sample database, safe run_sql with VM-step cost, result comparison, schema introspection
-benchmark.py           60 labelled questions, 3 tiers, train/test split, self-validation
-stats.py               Wilson intervals, sign test, paired counts
-report.py              Markdown / JSON report export
-llm_client.py          LangChain (ChatOpenAI) client, OpenAI-SDK fallback, disk cache, demo fallback
-mock_llm.py            offline simulator used in demo mode
-test_project.py        34 tests (no network, no Streamlit needed)
-requirements.txt       dependencies
-.env.example           template for the model settings
-```
-
-## Useful commands
+Alternatively:
 
 ```bash
-python test_project.py     # or: pytest -q test_project.py
-python benchmark.py        # verify the 60 reference queries
-python database.py         # rebuild the sample database
+pytest -q test_project.py
 ```
 
-## Limitations
+The test suite contains 34 tests and does not require a live LLM API or Streamlit application.
 
-* A tier's test set has 8 questions, so one question is 12.5 percentage points. The confidence intervals and
-  p-values are there to show how much each tier can and cannot prove; use **Full** size and several seeds for
-  tighter evidence.
-* Execution accuracy compares result sets, so two different but equivalent queries both pass; questions whose
-  reference has `ORDER BY` also compare row order.
-* The efficiency check is relative to the reference query and tuned for this small database (thresholds in
-  `AutoRefiningPipeline`). On your own database, without a reference SQL, only correlated subqueries are flagged.
-* Small local models are weaker at SQL and at rewriting prompts; the validation gate rejects bad rewrites, so the
-  worst case is "no improvement", not a worse prompt.
+### Validate Benchmark Reference Queries
+
+```bash
+python benchmark.py
+```
+
+This checks the benchmark questions and their reference SQL queries.
+
+### Rebuild the Sample Database
+
+```bash
+python database.py
+```
+
+This rebuilds the built-in e-commerce SQLite database.
+
+---
+
+## 13. Limitations
+
+- Each tier has only eight test questions in the Full benchmark, meaning one question represents 12.5 percentage points.
+- Confidence intervals and significance tests should be interpreted carefully because of the relatively small test set.
+- Execution accuracy compares query results rather than SQL syntax, allowing different but equivalent queries to pass.
+- The efficiency evaluation is relative to reference SQL and is tuned for the built-in sample database.
+- On custom databases without reference SQL, the efficiency checks are more limited and primarily flag correlated subqueries.
+- Smaller local models may produce weaker SQL queries and less effective prompt updates.
+- Demo-mode results are produced by a scripted simulator and should not be interpreted as real LLM performance.
+
+---
+
+## 14. Future Enhancements
+
+Potential extensions include:
+
+- Expanding the benchmark with more questions and database schemas.
+- Testing additional LLMs and model providers.
+- Improving query-plan analysis for custom databases.
+- Exploring alternative prompt optimization strategies.
+- Evaluating performance across more complex real-world SQL workloads.
+- Improving the feedback mechanism to provide more targeted optimization suggestions.
+
+---
+
+## 15. Conclusion
+
+This project demonstrates how textual feedback and iterative prompt optimization can improve Text-to-SQL generation without modifying the underlying language model.
+
+By combining SQL execution, query-plan analysis, correctness evaluation, and TextGrad-style prompt refinement, the system evaluates not only whether a generated SQL query works, but also whether it executes efficiently.
+
+The interactive dashboard makes the entire process observable and provides a practical environment for comparing prompting strategies and studying iterative LLM-based optimization.
+
+---
+
+## Team Contributions
+
+| Team Member | Area | Contributions |
+|--------|--------|--------|
+| **Member 1** | Database &amp; SQL Execution | Designed the SQLite database; implemented SQL execution, validation, query-plan analysis, and cost measurement. |
+| **Member 2** | LLM &amp; TextGrad Optimization | Integrated LLM using LangChain; implemented SQL generation, textual feedback, and iterative prompt refinement. |
+| **Member 3** | Benchmarking &amp; Dashboard | Created the benchmark dataset and evaluation metrics; implemented statistical analysis, Streamlit dashboard, and report generation. |
+| **All Members** | Collaboration | Integration, testing, debugging, and documentation. |
+
