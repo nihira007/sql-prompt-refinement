@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.log
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# API keys and environment variables
+.env
+.env.*
+
+# Keep example configuration
+!.env.example
+
+# SQLite cache and databases
+.llm_cache.sqlite
+*.sqlite
+*.sqlite3
+*.db
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
