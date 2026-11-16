@@ -359,8 +359,7 @@ if "bench" not in st.session_state:
     st.session_state["bench"] = {}
 bench: dict[str, TierBenchmark] = st.session_state["bench"]
 
-tab_live, tab_bench, tab_about = st.tabs(["🔍 Live refinement", "📊 Benchmark", "ℹ️ How it works"])
-
+tab_live, tab_bench = st.tabs(["🔍 Live refinement", "📊 Benchmark"])
 # --------------------------------------------------------------------------- #
 # Tab 1: live refinement
 # --------------------------------------------------------------------------- #
@@ -686,49 +685,3 @@ with tab_bench:
                 st.divider()
                 render_tier_results(bm)
 
-# --------------------------------------------------------------------------- #
-# Tab 3: how it works
-# --------------------------------------------------------------------------- #
-
-with tab_about:
-    st.markdown(
-        """
-### The loop
-
-1. **Forward pass:** a system prompt + the schema + a question go to the LLM, which writes SQL.
-2. **Execution:** the SQL runs on a read-only SQLite connection. Errors are captured verbatim.
-3. **Query planning:** `EXPLAIN QUERY PLAN` is read and the work is measured in SQLite *VM steps*
-   (a deterministic cost measure, unlike wall-clock time). A correct query that needs several times the
-   work of the reference, for example a correlated subquery re-scanning a table per row, counts as a failure.
-4. **Loss:** the failure is described in words: the database error, how the result differs from the expected one,
-   or the plan and its cost.
-5. **Backward pass:** a critic LLM turns that loss into a *textual gradient*: feedback on how the **prompt**
-   should change.
-6. **Optimiser step:** another LLM call folds the gradients of a mini-batch into an improved prompt.
-7. **Validation gate:** the candidate prompt is kept only if the train score strictly improves.
-
-### The metrics
-
-| Metric | Meaning |
-|---|---|
-| Execution success | the query ran without a database error |
-| Execution accuracy | the result equals the reference query's result (any column order, rows as a multiset) |
-| Pass rate | correct **and** not an inefficient plan; the headline metric |
-| 95% CI | Wilson interval over the held-out test questions |
-| p-value | exact sign test of TextGrad vs the best static prompt on the same questions |
-
-### Why you can trust the comparison
-
-* The optimiser only ever sees **train** questions; every number above is measured on **test** questions.
-* The stronger of the two static baselines is used for the significance test.
-* With several optimisation runs the headline run is chosen by its **train** score, never by its test score.
-* The benchmark has 60 questions in 3 tiers; the confidence intervals show how much (or little) each tier can prove.
-
-### Modes
-
-* **Demo mode** uses a scripted simulator: it demonstrates the machinery, not real model quality.
-* **Live mode** uses any OpenAI-compatible model (OpenAI, Ollama, Groq, Gemini, vLLM, ...), configured with
-  `API_KEY`, `MODEL` and `BASE_URL`. Responses are cached on disk, so runs are resumable.
-* **Your own database:** upload any SQLite file in the sidebar and refine questions about your own data.
-"""
-    )
