@@ -347,7 +347,7 @@ with st.sidebar.expander("Show schema given to the model"):
 # Header
 # --------------------------------------------------------------------------- #
 
-st.title("🧬 Iterative Prompt Refinement for SQL Query Planning via TextGrad")
+st.title("Iterative Prompt Refinement for SQL Query Planning via TextGrad")
 st.caption(
     "Generate SQL → execute it on SQLite → capture the error, wrong result or slow query plan → an LLM critic "
     "writes a *textual gradient* → an optimiser rewrites the system prompt → the next query is better."
