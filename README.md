@@ -1,3 +1,4 @@
+# Prompt Engineering Mini-Project
 # Iterative Prompt Refinement for SQL Query Planning via TextGrad
 
 An intelligent, plan-aware Text-to-SQL system that improves SQL generation through iterative prompt refinement.
@@ -571,8 +572,8 @@ The interactive dashboard makes the entire process observable and provides a pra
 
 | Team Member | Area | Contributions |
 |--------|--------|--------|
-| **Member 1** | Database &amp; SQL Execution | Designed the SQLite database; implemented SQL execution, validation, query-plan analysis, and cost measurement. |
-| **Member 2** | LLM &amp; TextGrad Optimization | Integrated LLM using LangChain; implemented SQL generation, textual feedback, and iterative prompt refinement. |
-| **Member 3** | Benchmarking &amp; Dashboard | Created the benchmark dataset and evaluation metrics; implemented statistical analysis, Streamlit dashboard, and report generation. |
-| **All Members** | Collaboration | Integration, testing, debugging, and documentation. |
+| Nihira Hassan | Database &amp; SQL Execution | Designed the SQLite database; implemented SQL execution, validation, query-plan analysis, and cost measurement. |
+| Namitha N Reddy | LLM &amp; TextGrad Optimization | Integrated LLM using LangChain; implemented SQL generation, textual feedback, and iterative prompt refinement. |
+|P Mahema Sai | Benchmarking &amp; Dashboard | Created the benchmark dataset and evaluation metrics; implemented statistical analysis, Streamlit dashboard, and report generation. |
+
 
